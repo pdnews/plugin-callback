@@ -8,6 +8,7 @@ import (
 	"github.com/gogf/gf/os/glog"
 	"github.com/gogf/gf/text/gstr"
 	"io/ioutil"
+	"log"
 	"net/http"
 )
 
@@ -53,12 +54,11 @@ func init() {
 }
 
 func run() {
-	engine.AddHookGo(engine.HOOK_PUBLISH, callbackPublish)
-	engine.AddHookGo(engine.HOOK_STREAMCLOSE, callbackCloses)
+	go engine.AddHookGo(engine.HOOK_PUBLISH, callbackPublish)
+	go engine.AddHookGo(engine.HOOK_STREAMCLOSE, callbackCloses)
 }
 
 func callbackPublish(s *engine.Stream) {
-	glog.Info("callbackPublish")
 	call := CallbackSRS{
 		Action: "publish",
 	}
@@ -66,7 +66,6 @@ func callbackPublish(s *engine.Stream) {
 }
 
 func callbackCloses(s *engine.Stream) {
-	glog.Info("callbackCloses")
 	call := CallbackSRS{
 		Action: "unpublish",
 	}
@@ -95,5 +94,7 @@ func (c *CallbackSRS) callback(s *engine.Stream, url string) {
 		if config.Debug {
 			response.RawDump()
 		}
+
+		log.Printf("CALLBACK %s/%s -> %s:%d", c.App, c.Stream, c.Action, response.StatusCode)
 	}()
 }
