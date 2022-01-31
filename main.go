@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 )
 
 type CallbackSRS struct {
@@ -23,6 +24,7 @@ type CallbackSRS struct {
 }
 
 var config = struct {
+	Timeout   int
 	Debug     bool
 	Connect   string
 	Publish   string
@@ -34,8 +36,16 @@ var config = struct {
 
 func init() {
 	pc := engine.PluginConfig{
-		Name:   "CALLBACK",
+		Name:   "Callback",
 		Config: &config,
+		HotConfig: map[string]func(interface{}){
+			"Timeout": func(v interface{}) {
+				config.Timeout = v.(int)
+			},
+			"Debug": func(v interface{}) {
+				config.Debug = v.(bool)
+			},
+		},
 	}
 	pc.Install(run)
 
@@ -62,23 +72,25 @@ func callbackPublish(s *engine.Stream) {
 	call := CallbackSRS{
 		Action: "publish",
 	}
-	call.callback(s, config.Publish)
+	call.callback(s.StreamPath, config.Publish)
 }
 
-func callbackCloses(s *engine.Stream) {
+// engine 为了减少内存泄露，改成了 StreamPath
+// https://github.com/Monibuca/engine/blob/c9052a981a31516f45690f1a3d36c36441fab4e2/stream.go#L131
+func callbackCloses(StreamPath string) {
 	call := CallbackSRS{
 		Action: "unpublish",
 	}
-	call.callback(s, config.Publish)
+	call.callback(StreamPath, config.Publish)
 }
 
-func (c *CallbackSRS) callback(s *engine.Stream, url string) {
+func (c *CallbackSRS) callback(StreamPath, url string) {
 	if g.IsEmpty(url) {
 		glog.Infof("callback %s's url is empty", c.Action)
 		return
 	}
 
-	param := gstr.Explode("/", s.StreamPath)
+	param := gstr.Explode("/", StreamPath)
 	if len(param) < 2 {
 		return
 	}
@@ -87,7 +99,11 @@ func (c *CallbackSRS) callback(s *engine.Stream, url string) {
 	c.Stream = param[len(param)-1]
 
 	go func() {
-		response, err := g.Client().ContentJson().Post(url, c)
+		if config.Timeout < 0 || config.Timeout > 100 {
+			config.Timeout = 30
+		}
+
+		response, err := g.Client().Timeout(time.Second*time.Duration(config.Timeout)).ContentJson().Post(url, c)
 		if err != nil {
 			glog.Warning(err)
 		}
@@ -95,6 +111,6 @@ func (c *CallbackSRS) callback(s *engine.Stream, url string) {
 			response.RawDump()
 		}
 
-		log.Printf("CALLBACK %s/%s -> %s:%d", c.App, c.Stream, c.Action, response.StatusCode)
+		log.Printf("Plugin Callback %s/%s -> %s:%d", c.App, c.Stream, c.Action, response.StatusCode)
 	}()
 }
